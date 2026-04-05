@@ -1,0 +1,51 @@
+---
+- name: Download Minikube binary
+  get_url:
+    url: https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
+    dest: /usr/local/bin/minikube
+    mode: '0755'
+
+- name: Start Minikube (with Docker driver, no VM needed)
+  shell: |
+    minikube start \
+      --driver=docker \
+      --force \
+      --cpus=2 \
+      --memory=2048 \
+      --ports=30000-32767:30000-32767
+  become: yes
+  environment:
+    HOME: /root
+
+- name: Enable Minikube addons
+  shell: minikube addons enable ingress
+  become: yes
+  environment:
+    HOME: /root
+
+# Прокидання проксі для доступу до Minikube Dashboard ззовні
+- name: Start Minikube proxy (background)
+  shell: |
+    nohup kubectl proxy \
+      --address='0.0.0.0' \
+      --port=8001 \
+      --accept-hosts='^.*$' \
+      --disable-filter=true \
+      > /var/log/kubectl-proxy.log 2>&1 &
+  become: yes
+  environment:
+    HOME: /root
+
+- name: Start Minikube dashboard proxy (background)
+  shell: |
+    nohup minikube dashboard \
+      --url \
+      > /var/log/minikube-dashboard.log 2>&1 &
+  become: yes
+  environment:
+    HOME: /root
+  ignore_errors: yes
+
+
+
+

@@ -1,0 +1,183 @@
+# .github/workflows/build-and-deploy.yml
+name: Build and Deploy Application
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        type: choice
+        options:
+          - dev
+          - release
+          - both
+      vm_ip:
+        description: 'IP of target VM (with Minikube)'
+        required: true
+        type: string
+
+jobs:
+  # ============================================================
+  # JOB 1: Збірка Docker образів
+  # ============================================================
+  build:
+    name: Build Docker Images
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout application source (develop branch)
+        uses: actions/checkout@v4
+        with:
+          repository: YulianSalo/devops-exam-pt2
+          ref: develop
+          path: app-dev
+
+      - name: Checkout application source (tag 1.0.0)
+        uses: actions/checkout@v4
+        with:
+          repository: YulianSalo/devops-exam-pt2
+          ref: 1.0.0
+          path: app-release
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Build and push DEV image (from develop branch)
+        if: inputs.environment == 'dev' || inputs.environment == 'both'
+        uses: docker/build-push-action@v5
+        with:
+          context: app-dev
+          push: true
+          tags: ${{ secrets.DOCKER_USERNAME }}/devops-exam:develop
+
+      - name: Build and push RELEASE image (from tag 1.0.0)
+        if: inputs.environment == 'release' || inputs.environment == 'both'
+        uses: docker/build-push-action@v5
+        with:
+          context: app-release
+          push: true
+          tags: ${{ secrets.DOCKER_USERNAME }}/devops-exam:1.0.0
+
+  # ============================================================
+  # JOB 2: Розгортання
+  # ============================================================
+  deploy:
+    name: Deploy to Kubernetes
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout this repo
+        uses: actions/checkout@v4
+
+      - name: Setup SSH key
+        run: |
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > /tmp/exam_key
+          chmod 600 /tmp/exam_key
+
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v3
+
+      - name: Get kubeconfig from VM
+        run: |
+          scp -i /tmp/exam_key \
+              -o StrictHostKeyChecking=no \
+              root@${{ inputs.vm_ip }}:/root/.kube/config \
+              /tmp/kubeconfig
+          # Замінюємо локальний адресу кластера на зовнішній IP
+          sed -i "s/127.0.0.1/${{ inputs.vm_ip }}/g" /tmp/kubeconfig
+          export KUBECONFIG=/tmp/kubeconfig
+
+      # ПЕРЕВІРКА ПРАВИЛЬНОСТІ МАНІФЕСТІВ (dry-run) — без реального розгортання
+      # Якщо dry-run не проходить — pipeline зупиняється
+      - name: Validate DEV manifests (dry-run)
+        if: inputs.environment == 'dev' || inputs.environment == 'both'
+        env:
+          KUBECONFIG: /tmp/kubeconfig
+        run: |
+          # Підставляємо ім'я образу
+          sed "s|YOUR_DOCKER_USERNAME|${{ secrets.DOCKER_USERNAME }}|g" \
+            task3/k8s/dev/deployment.yml | \
+          kubectl apply --dry-run=server -f -
+
+      - name: Validate RELEASE manifests (dry-run)
+        if: inputs.environment == 'release' || inputs.environment == 'both'
+        env:
+          KUBECONFIG: /tmp/kubeconfig
+        run: |
+          sed "s|YOUR_DOCKER_USERNAME|${{ secrets.DOCKER_USERNAME }}|g" \
+            task3/k8s/release/deployment.yml | \
+          kubectl apply --dry-run=server -f -
+
+      # Реальне розгортання DEV
+      - name: Deploy DEV environment
+        if: inputs.environment == 'dev' || inputs.environment == 'both'
+        env:
+          KUBECONFIG: /tmp/kubeconfig
+        run: |
+          kubectl apply -f task3/k8s/dev/namespace.yml
+          sed "s|YOUR_DOCKER_USERNAME|${{ secrets.DOCKER_USERNAME }}|g" \
+            task3/k8s/dev/deployment.yml | \
+          kubectl apply -f -
+          kubectl rollout status deployment/devops-app-dev -n dev --timeout=120s
+
+      # Реальне розгортання RELEASE
+      - name: Deploy RELEASE environment
+        if: inputs.environment == 'release' || inputs.environment == 'both'
+        env:
+          KUBECONFIG: /tmp/kubeconfig
+        run: |
+          kubectl apply -f task3/k8s/release/namespace.yml
+          sed "s|YOUR_DOCKER_USERNAME|${{ secrets.DOCKER_USERNAME }}|g" \
+            task3/k8s/release/deployment.yml | \
+          kubectl apply -f -
+          kubectl rollout status deployment/devops-app-release -n release --timeout=120s
+
+      # Port-forward для доступу до застосунків
+      - name: Setup port-forwarding on VM
+        run: |
+          ssh -i /tmp/exam_key -o StrictHostKeyChecking=no root@${{ inputs.vm_ip }} << 'EOF'
+            # Вбиваємо старі port-forward процеси
+            pkill -f "kubectl port-forward" || true
+            sleep 2
+
+            # DEV: порт 8002
+            nohup kubectl port-forward \
+              svc/devops-app-dev 8002:8002 \
+              -n dev \
+              --address='0.0.0.0' \
+              > /var/log/pf-dev.log 2>&1 &
+
+            # RELEASE: порт 8003
+            nohup kubectl port-forward \
+              svc/devops-app-release 8003:8003 \
+              -n release \
+              --address='0.0.0.0' \
+              > /var/log/pf-release.log 2>&1 &
+
+            echo "Port-forwarding started"
+            sleep 3
+            ps aux | grep "kubectl port-forward"
+          EOF
+
+      - name: Show deployment info
+        env:
+          KUBECONFIG: /tmp/kubeconfig
+        run: |
+          echo "=== DEV namespace ==="
+          kubectl get all -n dev
+          echo ""
+          echo "=== RELEASE namespace ==="
+          kubectl get all -n release
+          echo ""
+          echo "Application URLs:"
+          echo "  DEV:     http://${{ inputs.vm_ip }}:8002"
+          echo "  RELEASE: http://${{ inputs.vm_ip }}:8003"
+
+      - name: Cleanup
+        if: always()
+        run: rm -f /tmp/exam_key /tmp/kubeconfig

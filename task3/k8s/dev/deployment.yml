@@ -1,0 +1,37 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: devops-app-dev
+  namespace: dev
+  labels:
+    app: devops-app
+    env: dev
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: devops-app
+  template:
+    metadata:
+      labels:
+        app: devops-app
+    spec:
+      containers:
+        - name: devops-app
+          image: YOUR_DOCKER_USERNAME/devops-exam:develop   # замінити
+          ports:
+            - containerPort: 8000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: devops-app-dev
+  namespace: dev
+spec:
+  selector:
+    app: devops-app
+  ports:
+    - protocol: TCP
+      port: 8002          # зовнішній порт
+      targetPort: 8000    # порт контейнера
+  type: NodePort

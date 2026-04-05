@@ -1,0 +1,66 @@
+#.github/workflows/ansible-install.yml
+name: Ansible Install Components
+
+on:
+  workflow_dispatch:
+    inputs:
+      vm_ip:
+        description: 'IP address of target VM'
+        required: true
+        type: string
+
+jobs:
+  install:
+    name: Install Kubernetes, Minikube, Helm
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: task2
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Ansible
+        run: |
+          sudo apt update
+          sudo apt install -y python3 python3-pip
+          pip3 install ansible
+
+      - name: Setup SSH key
+        run: |
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > /tmp/exam_key
+          chmod 600 /tmp/exam_key
+
+      # ПЕРЕВІРКА ПРАВИЛЬНОСТІ БЕЗ ВСТАНОВЛЕННЯ
+      # Якщо перевірка не пройде — pipeline зупиниться і install не виконається
+      - name: Pre-installation checks (Ansible check mode)
+        env:
+          VM_IP: ${{ inputs.vm_ip }}
+        run: |
+          ansible-playbook playbooks/check.yml \
+            -e "ansible_host=${{ inputs.vm_ip }}" \
+            -e "ansible_ssh_private_key_file=/tmp/exam_key"
+
+      # Реальне встановлення — виконується ТІЛЬКИ якщо перевірка пройшла
+      - name: Install components
+        env:
+          VM_IP: ${{ inputs.vm_ip }}
+        run: |
+          ansible-playbook playbooks/install.yml \
+            -e "ansible_host=${{ inputs.vm_ip }}" \
+            -e "ansible_ssh_private_key_file=/tmp/exam_key"
+
+      - name: Verify installation
+        env:
+          VM_IP: ${{ inputs.vm_ip }}
+        run: |
+          ansible all \
+            -m shell \
+            -a "kubectl version --client && minikube version && helm version" \
+            -e "ansible_host=${{ inputs.vm_ip }}" \
+            -e "ansible_ssh_private_key_file=/tmp/exam_key"
+
+      - name: Cleanup SSH key
+        if: always()
+        run: rm -f /tmp/exam_key

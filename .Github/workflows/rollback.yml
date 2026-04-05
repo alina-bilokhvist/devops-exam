@@ -1,0 +1,59 @@
+# .github/workflows/rollback.yml
+name: Rollback Deployment
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to rollback'
+        required: true
+        type: choice
+        options:
+          - dev
+          - release
+      vm_ip:
+        description: 'IP of target VM'
+        required: true
+        type: string
+
+jobs:
+  rollback:
+    name: Rollback to previous version
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Setup SSH key
+        run: |
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > /tmp/exam_key
+          chmod 600 /tmp/exam_key
+
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v3
+
+      - name: Get kubeconfig
+        run: |
+          scp -i /tmp/exam_key -o StrictHostKeyChecking=no \
+            root@${{ inputs.vm_ip }}:/root/.kube/config /tmp/kubeconfig
+          sed -i "s/127.0.0.1/${{ inputs.vm_ip }}/g" /tmp/kubeconfig
+
+      - name: Rollback DEV deployment
+        if: inputs.environment == 'dev'
+        env:
+          KUBECONFIG: /tmp/kubeconfig
+        run: |
+          kubectl rollout undo deployment/devops-app-dev -n dev
+          kubectl rollout status deployment/devops-app-dev -n dev
+          kubectl rollout history deployment/devops-app-dev -n dev
+
+      - name: Rollback RELEASE deployment
+        if: inputs.environment == 'release'
+        env:
+          KUBECONFIG: /tmp/kubeconfig
+        run: |
+          kubectl rollout undo deployment/devops-app-release -n release
+          kubectl rollout status deployment/devops-app-release -n release
+          kubectl rollout history deployment/devops-app-release -n release
+
+      - name: Cleanup
+        if: always()
+        run: rm -f /tmp/exam_key /tmp/kubeconfig

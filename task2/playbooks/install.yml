@@ -1,0 +1,11 @@
+---
+- name: Install all components
+  hosts: all
+  become: yes
+
+  roles:
+    - common
+    - docker
+    - kubernetes
+    - minikube
+    - helm

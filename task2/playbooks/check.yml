@@ -1,0 +1,52 @@
+---
+# Цей playbook перевіряє доступність VM та вимоги ДО реального встановлення
+# Якщо перевірка не пройде — pipeline зупиниться
+
+- name: Pre-installation checks
+  hosts: all
+  gather_facts: yes
+
+  tasks:
+    - name: Check OS family (must be Debian/Ubuntu)
+      assert:
+        that:
+          - ansible_os_family == "Debian"
+        fail_msg: "ПОМИЛКА: ОС повинна бути Debian/Ubuntu. Поточна: {{ ansible_os_family }}"
+        success_msg: "OK: ОС Ubuntu/Debian"
+
+    - name: Check available RAM (minimum 2 GB for Minikube)
+      assert:
+        that:
+          - ansible_memtotal_mb >= 2048
+        fail_msg: "ПОМИЛКА: Недостатньо RAM. Потрібно >= 2048 MB, доступно: {{ ansible_memtotal_mb }} MB"
+        success_msg: "OK: RAM {{ ansible_memtotal_mb }} MB"
+
+    - name: Check available CPU (minimum 2 for Minikube)
+      assert:
+        that:
+          - ansible_processor_vcpus >= 2
+        fail_msg: "ПОМИЛКА: Недостатньо CPU. Потрібно >= 2, доступно: {{ ansible_processor_vcpus }}"
+        success_msg: "OK: CPU {{ ansible_processor_vcpus }}"
+
+    - name: Check internet connectivity
+      uri:
+        url: https://google.com
+        method: GET
+        timeout: 10
+      register: internet_check
+
+    - name: Assert internet is available
+      assert:
+        that:
+          - internet_check.status == 200
+        fail_msg: "ПОМИЛКА: Немає доступу до інтернету"
+        success_msg: "OK: Інтернет доступний"
+
+    - name: Check disk space (minimum 20 GB free)
+      assert:
+        that:
+          - (ansible_mounts | selectattr('mount', 'equalto', '/') | list | first).size_available > 20000000000
+        fail_msg: "ПОМИЛКА: Недостатньо дискового простору (менше 20 GB)"
+        success_msg: "OK: Достатньо дискового простору"
+
+
