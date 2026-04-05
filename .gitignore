@@ -1,0 +1,23 @@
+Terraform sensitive files
+*.tfvars
+*.tfvars.json
+Private keys
+*.pem
+*.key
+Terraform working directory
+.terraform/
+Terraform plan files
+tfplan
+tfplan.*
+Terraform state (рекомендовано теж ігнорити, якщо використовуєш remote backend)
+*.tfstate
+.tfstate.
+Crash logs
+crash.log
+Override files
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+
