@@ -6,64 +6,41 @@
     mode: '0755'
 
 - name: Cleanup previous Minikube state
-  become: yes
-  become_user: devops
   command: minikube delete
   ignore_errors: yes
-  environment:
-    HOME: /home/devops
-
-- name: Start Minikube (as devops user)
   become: yes
-  become_user: devops
+  environment:
+    HOME: /root
+
+- name: Start Minikube (with NONE driver)
   shell: |
     minikube start \
-      --driver=docker \
-      --cpus=2 \
-      --memory=4096 \
-      --ports=30000-32767:30000-32767
+      --driver=none \
+      --force
+  become: yes
   environment:
-    HOME: /home/devops
+    HOME: /root
 
 - name: Wait for Minikube to be ready
+  command: kubectl wait --for=condition=Ready nodes --all --timeout=120s
   become: yes
-  become_user: devops
-  command: kubectl wait --for=condition=Ready nodes --all --timeout=90s
   environment:
-    HOME: /home/devops
+    HOME: /root
 
 - name: Enable Minikube addons
-  become: yes
-  become_user: devops
   shell: minikube addons enable ingress
+  become: yes
   environment:
-    HOME: /home/devops
+    HOME: /root
 
 - name: Start kubectl proxy (background)
-  become: yes
-  become_user: devops
   shell: |
     nohup kubectl proxy \
       --address='0.0.0.0' \
       --port=8001 \
       --accept-hosts='^.*$' \
       --disable-filter=true \
-      > /home/devops/kubectl-proxy.log 2>&1 &
-  async: 10
-  poll: 0
-  environment:
-    HOME: /home/devops
-
-- name: Start Minikube dashboard (background)
+      > /var/log/kubectl-proxy.log 2>&1 &
   become: yes
-  become_user: devops
-  shell: |
-    nohup minikube dashboard \
-      --url \
-      > /home/devops/minikube-dashboard.log 2>&1 &
-  async: 10
-  poll: 0
   environment:
-    HOME: /home/devops
-  ignore_errors: yes
-
+    HOME: /root
