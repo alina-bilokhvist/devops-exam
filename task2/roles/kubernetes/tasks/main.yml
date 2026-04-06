@@ -1,11 +1,26 @@
 ---
-- name: Add Kubernetes GPG key
-  apt_key:
-    url: https://pkgs.k8s.io/core:/stable:/v1.29/deb/Release.key
+- name: Install dependencies for Kubernetes
+  apt:
+    name: [ 'apt-transport-https', 'ca-certificates', 'curl', 'gnupg' ]
     state: present
+    update_cache: yes
+
+- name: Create keyrings directory
+  file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: '0755'
+
+- name: Download Kubernetes GPG key
+  shell: |
+    curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.29/deb/Release.key | gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+  args:
+    # Цей параметр каже Ansible не запускати команду знову, якщо файл вже існує
+    creates: /etc/apt/keyrings/kubernetes-apt-keyring.gpg
 
 - name: Add Kubernetes repository
   apt_repository:
+    # Тепер шлях у [signed-by=...] відповідає файлу, який ми щойно створили
     repo: "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.29/deb/ /"
     state: present
     filename: kubernetes
@@ -16,12 +31,13 @@
     state: present
     update_cache: yes
 
-- name: Verify kubectl
+- name: Verify kubectl installation
   command: kubectl version --client
   register: kubectl_version
+  changed_when: false
 
 - name: Print kubectl version
   debug:
-    msg: "{{ kubectl_version.stdout }}"
+    var: kubectl_version.stdout_lines
 
 
