@@ -1,5 +1,5 @@
 ---
-# 1. Очищення конфліктних репозиторіїв (щоб apt update не падав)
+# 1. Очищення конфліктних репозиторіїв
 - name: Remove all conflicting repository files
   file:
     path: "{{ item }}"
@@ -9,7 +9,7 @@
     - /etc/apt/sources.list.d/download_docker_com_linux_ubuntu.list
     - /etc/apt/sources.list.d/kubernetes.list
 
-# 2. Оновлення кешу та встановлення системних залежностей
+# 2. Оновлення кешу та встановлення ВСІХ системних залежностей одним махом
 - name: Update apt and install core dependencies
   apt:
     name:
@@ -19,20 +19,30 @@
       - ca-certificates
       - gnupg
       - lsb-release
-      - conntrack  # КРИТИЧНО для роботи мережі Kubernetes
-      - socat      # КРИТИЧНО для проксі та портів
       - software-properties-common
+      - conntrack  # Потрібно для Kubernetes мережі
+      - socat      # Потрібно для портів
+      - iproute2   # Потрібно для драйвера none
     state: present
     update_cache: yes
     force_apt_get: yes
 
-# 3. Підготовка групи для Docker (щоб не було помилок при створенні юзера)
+# 3. Встановлення crictl (вирішує помилку зі скріншота image_b7ee88.png)
+- name: Download and install crictl
+  shell: |
+    VERSION="v1.30.0"
+    curl -L "https://github.com/kubernetes-sigs/cri-tools/releases/download/${VERSION}/crictl-${VERSION}-linux-amd64.tar.gz" --output crictl.tar.gz
+    tar zxvf crictl.tar.gz -C /usr/local/bin
+    rm -f crictl.tar.gz
+  args:
+    creates: /usr/local/bin/crictl
+
+# 4. Підготовка груп та користувача (для порядку в системі)
 - name: Ensure docker group exists
   group:
     name: docker
     state: present
 
-# 4. Створення користувача devops (про всяк випадок, хоча працюємо від root)
 - name: Create devops user
   user:
     name: devops
@@ -46,3 +56,6 @@
     content: "devops ALL=(ALL) NOPASSWD:ALL"
     dest: /etc/sudoers.d/devops
     mode: '0440'
+
+
+
