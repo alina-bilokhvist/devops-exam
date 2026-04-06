@@ -60,19 +60,34 @@
     HOME: /root
 
 
-- name: Start Kubernetes API Proxy
-  shell: |
-    nohup kubectl proxy --address='0.0.0.0' --accept-hosts='.*' --port=8001 --disable-filter=true > /tmp/kubectl-proxy.log 2>&1 &
+- name: Make certificates readable for deployment
+  file:
+    path: "{{ item }}"
+    mode: '0644'
+  loop:
+    - /root/.minikube/ca.crt
+    - /root/.minikube/profiles/minikube/client.crt
+    - /root/.minikube/profiles/minikube/client.key
   become: yes
-  async: 60
+
+- name: Start Proxy in background (Insecure mode)
+  shell: |
+    # Вбиваємо старі процеси
+    pkill -f "kubectl proxy" || true
+
+    # Запускаємо проксі, який ігнорує перевірку сертифікатів (--insecure-skip-tls-verify)
+    nohup kubectl proxy \
+      --address='0.0.0.0' \
+      --accept-hosts='.*' \
+      --port=8001 \
+      --disable-filter=true \
+      --insecure-skip-tls-verify=true \
+      > /tmp/kubectl-proxy.log 2>&1 &
+  become: yes
+  async: 10
   poll: 0
-  ignore_errors: yes
   environment:
     HOME: /root
-- name: Get external IP of the VM
-  shell: curl -s https://ifconfig.me
-  register: external_ip
-  changed_when: false
 
 - name: Show Minikube Dashboard URL
   debug:

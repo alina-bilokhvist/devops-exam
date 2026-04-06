@@ -82,16 +82,18 @@ jobs:
       - name: Install kubectl
         uses: azure/setup-kubectl@v3
 
-      - name: Get kubeconfig from VM
+     - name: Get kubeconfig from VM
         run: |
-          scp -i /tmp/exam_key \
-              -o StrictHostKeyChecking=no \
-              root@${{ inputs.vm_ip }}:/root/.kube/config \
-              /tmp/kubeconfig
-          # Замінюємо локальний адресу кластера на зовнішній IP
+          # Генеруємо переносний конфіг з вбудованими сертифікатами
+          ssh -i /tmp/exam_key -o StrictHostKeyChecking=no root@${{ inputs.vm_ip }} \
+          "kubectl config view --raw --flatten" > /tmp/kubeconfig
+          # Замінюємо внутрішній IP на зовнішній
           sed -i "s/127.0.0.1/${{ inputs.vm_ip }}/g" /tmp/kubeconfig
-          export KUBECONFIG=/tmp/kubeconfig
 
+          # Перевіряємо, чи працює (для логів)
+          export KUBECONFIG=/tmp/kubeconfig
+          kubectl cluster-info
+|
       # ПЕРЕВІРКА ПРАВИЛЬНОСТІ МАНІФЕСТІВ (dry-run) — без реального розгортання
       # Якщо dry-run не проходить — pipeline зупиняється
       - name: Validate DEV manifests (dry-run)
