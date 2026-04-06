@@ -1,36 +1,50 @@
-# .github/workflows/git-rollback.yml
+# .github/workflows/rollback-git.yml
 name: Git Rollback (Delete Last Commit)
 
 on:
   workflow_dispatch:
     inputs:
       branch:
-        description: 'Branch to rollback'
+        description: 'Гілка, з якої треба видалити останній коміт'
         required: true
         default: 'develop'
         type: string
 
+# Дозволяємо воркфлоу змінювати вміст репозиторію
+permissions:
+  contents: write
+
 jobs:
   rollback-commit:
+    name: Remove Last Commit
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.inputs.branch }}
-          fetch-depth: 0 # Важливо завантажити всю історію
+          fetch-depth: 0 # Завантажуємо всю історію, щоб мати змогу відкотитися назад
+          token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Reset and Push
+      - name: Reset and Force Push
         run: |
+          # Налаштування користувача Git
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           
-          echo "Current last commit: $(git log -1 --oneline)"
+          echo "Поточний останній коміт: $(git log -1 --oneline)"
           
-          # Відкочуємося на 1 коміт назад
+          # Жорсткий відкат на один коміт назад
           git reset --hard HEAD~1
           
-          echo "New last commit: $(git log -1 --oneline)"
+          echo "Новий останній коміт: $(git log -1 --oneline)"
           
-          # Примусово оновлюємо гілку в GitHub
+          # Примусове оновлення гілки в GitHub (видаляє коміт на сервері)
           git push origin ${{ github.event.inputs.branch }} --force
+
+      - name: Summary
+        if: success()
+        run: |
+          echo "### Git Rollback Successful! :wastebasket:" >> $GITHUB_STEP_SUMMARY
+          echo "Останній коміт успішно видалено з гілки **${{ github.event.inputs.branch }}**." >> $GITHUB_STEP_SUMMARY
