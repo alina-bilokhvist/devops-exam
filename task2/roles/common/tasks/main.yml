@@ -1,9 +1,21 @@
 ---
+# 1. ВИДАЛЯЄМО КОНФЛІКТНІ ФАЙЛИ (Це виправить вашу помилку)
+- name: Remove conflicting Docker repository files to unblock apt
+  file:
+    path: "{{ item }}"
+    state: absent
+  with_items:
+    - /etc/apt/sources.list.d/docker.list
+    - /etc/apt/sources.list.d/download_docker_com_linux_ubuntu.list
+
+# 2. ОНОВЛЮЄМО КЕШ (Тепер він пройде без помилок)
 - name: Update apt cache
   apt:
     update_cache: yes
-    cache_valid_time: 3600
+    # Прибираємо cache_valid_time, щоб примусово оновити кеш після видалення файлів
+    force_apt_get: yes
 
+# 3. ВСТАНОВЛЮЄМО ПАКЕТИ
 - name: Install required packages
   apt:
     name:
