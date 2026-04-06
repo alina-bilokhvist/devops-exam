@@ -8,13 +8,13 @@
 - name: Cleanup previous state
   shell: |
     minikube delete --all --purge
-    rm -rf ~/.kube ~/.minikube
+    rm -rf /root/.kube /root/.minikube
   ignore_errors: yes
   become: yes
   environment:
     HOME: /root
 
-- name: Start Minikube (none driver with )
+- name: Start Minikube (Driver NONE)
   shell: |
     minikube start \
       --driver=none \
@@ -26,24 +26,50 @@
   environment:
     HOME: /root
 
+- name: Fix permissions for kube config
+  file:
+    path: /root/.kube
+    owner: root
+    group: root
+    recurse: yes
+  become: yes
+
 - name: Wait for nodes to be ready
   command: kubectl wait --for=condition=Ready nodes --all --timeout=120s
   become: yes
   environment:
     HOME: /root
 
-- name: Enable Ingress
-  shell: minikube addons enable ingress
+- name: Enable Addons (Ingress & Dashboard)
+  shell: minikube addons enable {{ item }}
+  loop:
+    - ingress
+    - dashboard
+  become: yes
+  environment:
+    HOME: /root
+
+- name: Wait for Dashboard to be created
+  shell: kubectl get service kubernetes-dashboard -n kubernetes-dashboard
+  register: dash_check
+  until: dash_check.rc == 0
+  retries: 12
+  delay: 10
   become: yes
   environment:
     HOME: /root
 
 - name: Start Proxy in background
   shell: |
-    nohup kubectl proxy --address='0.0.0.0' --accept-hosts='.*' --port=8001 > /tmp/kubectl-proxy.log 2>&1 &
+    pkill -f "kubectl proxy" || true
+    nohup kubectl proxy \
+      --address='0.0.0.0' \
+      --accept-hosts='.*' \
+      --port=8001 \
+      --disable-filter=true \
+      > /tmp/kubectl-proxy.log 2>&1 &
   become: yes
   async: 10
   poll: 0
   environment:
     HOME: /root
-

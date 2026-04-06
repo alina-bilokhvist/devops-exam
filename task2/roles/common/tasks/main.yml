@@ -9,7 +9,7 @@
     - /etc/apt/sources.list.d/download_docker_com_linux_ubuntu.list
     - /etc/apt/sources.list.d/kubernetes.list
 
-# 2. Оновлення кешу та встановлення ВСІХ системних залежностей одним махом
+# 2. Встановлення системних залежностей
 - name: Update apt and install core dependencies
   apt:
     name:
@@ -20,14 +20,14 @@
       - gnupg
       - lsb-release
       - software-properties-common
-      - conntrack  # Потрібно для Kubernetes мережі
-      - socat      # Потрібно для портів
-      - iproute2   # Потрібно для драйвера none
+      - conntrack
+      - socat
+      - iproute2
     state: present
     update_cache: yes
     force_apt_get: yes
 
-# 3. Встановлення crictl (вирішує помилку зі скріншота image_b7ee88.png)
+# 3. Встановлення crictl
 - name: Download and install crictl
   shell: |
     VERSION="v1.30.0"
@@ -37,7 +37,39 @@
   args:
     creates: /usr/local/bin/crictl
 
-# 4. Підготовка груп та користувача (для порядку в системі)
+# 4. Встановлення cri-dockerd (Міст між Docker та Kubernetes)
+- name: Install cri-dockerd
+  shell: |
+    VERSION="0.3.15"
+    curl -L "https://github.com/Mirantis/cri-dockerd/releases/download/v${VERSION}/cri-dockerd-${VERSION}.amd64.tgz" --output cri-dockerd.tgz
+    tar zxvf cri-dockerd.tgz
+    install -o root -g root -m 0755 cri-dockerd/cri-dockerd /usr/local/bin/cri-dockerd
+    
+    # Налаштування systemd сервісів
+    wget https://raw.githubusercontent.com/Mirantis/cri-dockerd/master/packaging/systemd/cri-docker.service
+    wget https://raw.githubusercontent.com/Mirantis/cri-dockerd/master/packaging/systemd/cri-docker.socket
+    mv cri-docker.service cri-docker.socket /etc/systemd/system/
+    sed -i -e 's,/usr/bin/cri-dockerd,/usr/local/bin/cri-dockerd,' /etc/systemd/system/cri-docker.service
+    
+    systemctl daemon-reload
+    systemctl enable --now cri-docker.socket
+    systemctl enable --now cri-docker.service
+    rm -rf cri-dockerd.tgz cri-dockerd
+  args:
+    creates: /usr/local/bin/cri-dockerd
+
+# 5. Встановлення CNI plugins (Мережа для Pods)
+- name: Install CNI plugins
+  shell: |
+    mkdir -p /opt/cni/bin
+    CNI_VERSION="v1.4.0"
+    curl -L "https://github.com/containernetworking/plugins/releases/download/${CNI_VERSION}/cni-plugins-linux-amd64-${CNI_VERSION}.tgz" --output cni-plugins.tgz
+    tar -C /opt/cni/bin -xzf cni-plugins.tgz
+    rm -f cni-plugins.tgz
+  args:
+    creates: /opt/cni/bin/bridge
+
+# 6. Користувач та права
 - name: Ensure docker group exists
   group:
     name: docker
@@ -51,48 +83,8 @@
     append: yes
     create_home: yes
 
-- name: Allow devops user to use sudo without password
+- name: Allow devops user sudo without password
   copy:
     content: "devops ALL=(ALL) NOPASSWD:ALL"
     dest: /etc/sudoers.d/devops
     mode: '0440'
-
-- name: Install cri-dockerd
-  shell: |
-    # Визначаємо останню версію
-    VERSION="0.3.15"
-    # Завантажуємо архів
-    curl -L https://github.com/Mirantis/cri-dockerd/releases/download/v${VERSION}/cri-dockerd-${VERSION}.amd64.tgz --output cri-dockerd.tgz
-    tar zxvf cri-dockerd.tgz
-    # Копіюємо бінарник
-    install -o root -g root -m 0755 cri-dockerd/cri-dockerd /usr/local/bin/cri-dockerd
-    # Завантажуємо та налаштовуємо системні сервіси (systemd)
-    wget https://raw.githubusercontent.com/Mirantis/cri-dockerd/master/packaging/systemd/cri-docker.service
-    wget https://raw.githubusercontent.com/Mirantis/cri-dockerd/master/packaging/systemd/cri-docker.socket
-    mv cri-docker.service cri-docker.socket /etc/systemd/system/
-    sed -i -e 's,/usr/bin/cri-dockerd,/usr/local/bin/cri-dockerd,' /etc/systemd/system/cri-docker.service
-    # Запускаємо сервіс
-    systemctl daemon-reload
-    systemctl enable --now cri-docker.socket
-    systemctl enable --now cri-docker.service
-    # Чистимо сміття
-    rm -rf cri-dockerd.tgz cri-dockerd
-  args:
-    creates: /usr/local/bin/cri-dockerd
-
-- name: Install CNI plugins
-  shell: |
-    # Створюємо директорію для плагінів
-    mkdir -p /opt/cni/bin
-    # Визначаємо версію
-    CNI_VERSION="v1.4.0"
-    ARCH="amd64"
-    # Завантажуємо та розпаковуємо
-    curl -L "https://github.com/containernetworking/plugins/releases/download/${CNI_VERSION}/cni-plugins-linux-${ARCH}-${CNI_VERSION}.tgz" --output cni-plugins.tgz
-    tar -C /opt/cni/bin -xzf cni-plugins.tgz
-    # Чистимо за собою
-    rm -f cni-plugins.tgz
-  args:
-    creates: /opt/cni/bin/bridge
-
-
