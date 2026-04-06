@@ -52,7 +52,6 @@ jobs:
         with:
           context: app-dev
           push: true
-          # Лапки запобігають помилці "invalid reference format"
           tags: "${{ secrets.DOCKER_USERNAME }}/devops-exam:develop"
 
       - name: Build and push RELEASE image
@@ -76,19 +75,24 @@ jobs:
 
       - name: Setup SSH key
         run: |
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" > /tmp/exam_key
-          chmod 600 /tmp/exam_key
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ github.event.inputs.vm_ip }} >> ~/.ssh/known_hosts
 
       - name: Install kubectl
         uses: azure/setup-kubectl@v3
 
       - name: Get kubeconfig from VM
         run: |
-          # Генеруємо переносний конфіг з вбудованими сертифікатами
-          ssh -i /tmp/exam_key -o StrictHostKeyChecking=no root@${{ github.event.inputs.vm_ip }} \
+          # Використовуємо -i ~/.ssh/id_rsa для надійності
+          ssh -o StrictHostKeyChecking=no root@${{ github.event.inputs.vm_ip }} \
           "kubectl config view --raw --flatten" > /tmp/kubeconfig
           
-          # Замінюємо внутрішній IP на зовнішній
+          # Замінюємо адресу API сервера. Якщо Minikube використовує порт 8443, переконайтеся, що він доступний зовні.
+          # Ми замінюємо 127.0.0.1 або внутрішню IP minikube на зовнішню IP віртуальної машини.
+          sed -i "s|server: https://.*:8443|server: https://${{ github.event.inputs.vm_ip }}:8443|g" /tmp/kubeconfig
+          # Також про всяк випадок загальна заміна 127.0.0.1
           sed -i "s/127.0.0.1/${{ github.event.inputs.vm_ip }}/g" /tmp/kubeconfig
 
       - name: Validate and Deploy DEV
@@ -111,21 +115,24 @@ jobs:
 
       - name: Setup port-forwarding on VM
         run: |
-          ssh -i /tmp/exam_key -o StrictHostKeyChecking=no root@${{ github.event.inputs.vm_ip }} << 'EOF'
+          ssh -o StrictHostKeyChecking=no root@${{ github.event.inputs.vm_ip }} << 'EOF'
+            # Вбиваємо старі процеси, щоб звільнити порти
             pkill -f "kubectl port-forward" || true
             sleep 2
-            nohup kubectl port-forward svc/devops-app-dev 8002:8002 -n dev --address='0.0.0.0' > /var/log/pf-dev.log 2>&1 &
-            nohup kubectl port-forward svc/devops-app-release 8003:8003 -n release --address='0.0.0.0' > /var/log/pf-release.log 2>&1 &
+            # Запуск у фоні. Важливо: --address='0.0.0.0' дозволяє доступ ззовні
+            nohup kubectl port-forward svc/devops-app-dev 8002:8002 -n dev --address='0.0.0.0' > /dev/null 2>&1 &
+            nohup kubectl port-forward svc/devops-app-release 8003:8003 -n release --address='0.0.0.0' > /dev/null 2>&1 &
           EOF
 
       - name: Show deployment info
-        env:
-          KUBECONFIG: /tmp/kubeconfig
         run: |
-          echo "Application URLs:"
-          echo "DEV: http://${{ github.event.inputs.vm_ip }}:8002"
-          echo "RELEASE: http://${{ github.event.inputs.vm_ip }}:8003"
+          echo "### Deployment Successful! :rocket:" >> $GITHUB_STEP_SUMMARY
+          echo "| Environment | URL |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------------|-----|" >> $GITHUB_STEP_SUMMARY
+          echo "| DEV | http://${{ github.event.inputs.vm_ip }}:8002 |" >> $GITHUB_STEP_SUMMARY
+          echo "| RELEASE | http://${{ github.event.inputs.vm_ip }}:8003 |" >> $GITHUB_STEP_SUMMARY
 
       - name: Cleanup
         if: always()
-        run: rm -f /tmp/exam_key /tmp/kubeconfig
+        run: rm -rf ~/.ssh/id_rsa /tmp/kubeconfig
+
