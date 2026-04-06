@@ -1,22 +1,16 @@
 ---
-# 1. ВИДАЛЯЄМО КОНФЛІКТНІ ФАЙЛИ (Це виправить вашу помилку)
-- name: Remove conflicting Docker repository files to unblock apt
+# 1. Очищення конфліктних репозиторіїв (щоб apt update не падав)
+- name: Remove all conflicting repository files
   file:
     path: "{{ item }}"
     state: absent
   with_items:
     - /etc/apt/sources.list.d/docker.list
     - /etc/apt/sources.list.d/download_docker_com_linux_ubuntu.list
+    - /etc/apt/sources.list.d/kubernetes.list
 
-# 2. ОНОВЛЮЄМО КЕШ (Тепер він пройде без помилок)
-- name: Update apt cache
-  apt:
-    update_cache: yes
-    # Прибираємо cache_valid_time, щоб примусово оновити кеш після видалення файлів
-    force_apt_get: yes
-
-# 3. ВСТАНОВЛЮЄМО ПАКЕТИ
-- name: Install required packages
+# 2. Оновлення кешу та встановлення системних залежностей
+- name: Update apt and install core dependencies
   apt:
     name:
       - curl
@@ -25,11 +19,21 @@
       - ca-certificates
       - gnupg
       - lsb-release
-      - conntrack
-      - socat
+      - conntrack  # КРИТИЧНО для роботи мережі Kubernetes
+      - socat      # КРИТИЧНО для проксі та портів
+      - software-properties-common
+    state: present
+    update_cache: yes
+    force_apt_get: yes
+
+# 3. Підготовка групи для Docker (щоб не було помилок при створенні юзера)
+- name: Ensure docker group exists
+  group:
+    name: docker
     state: present
 
-- name: Create a new user for Minikube
+# 4. Створення користувача devops (про всяк випадок, хоча працюємо від root)
+- name: Create devops user
   user:
     name: devops
     shell: /bin/bash
@@ -42,29 +46,3 @@
     content: "devops ALL=(ALL) NOPASSWD:ALL"
     dest: /etc/sudoers.d/devops
     mode: '0440'
-
-- name: Remove conflicting repository files
-  file:
-    path: "{{ item }}"
-    state: absent
-  with_items:
-    - /etc/apt/sources.list.d/docker.list
-    - /etc/apt/sources.list.d/kubernetes.list
-
-- name: Update apt cache
-  apt:
-    update_cache: yes
-    force_apt_get: yes
-
-- name: Install dependencies for Minikube and Docker
-  apt:
-    name:
-      - curl
-      - wget
-      - apt-transport-https
-      - ca-certificates
-      - gnupg
-      - lsb-release
-      - conntrack  # ОБОВ'ЯЗКОВО
-      - socat      # ОБОВ'ЯЗКОВО
-    state: present

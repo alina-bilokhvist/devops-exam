@@ -5,40 +5,38 @@
     dest: /usr/local/bin/minikube
     mode: '0755'
 
-- name: Cleanup Minikube and configs (Step 5 from example)
+- name: Cleanup previous state
   shell: |
     minikube delete --all --purge
-    rm -rf ~/.kube
-    rm -rf ~/.minikube
+    rm -rf ~/.kube ~/.minikube
   ignore_errors: yes
   become: yes
   environment:
     HOME: /root
 
-- name: Start Minikube (Step 6 from example - Docker as root)
+- name: Start Minikube (THE ONLY WORKING WAY ON VM)
   shell: |
     minikube start \
-      --driver=docker \
+      --driver=none \
       --force \
-      --listen-address=0.0.0.0 \
-      --memory=4096mb \
-      --cpus=2 \
-      --ports=30000-32767:30000-32767
+      --listen-address=0.0.0.0
   become: yes
   environment:
     HOME: /root
 
-- name: Enable Addons (Step 7 from example)
-  command: minikube addons enable {{ item }}
-  loop:
-    - ingress
-    - dashboard
-    - metrics-server
+- name: Wait for nodes to be ready
+  command: kubectl wait --for=condition=Ready nodes --all --timeout=120s
   become: yes
   environment:
     HOME: /root
 
-- name: Start Proxy in background (Step 9 from example)
+- name: Enable Ingress
+  shell: minikube addons enable ingress
+  become: yes
+  environment:
+    HOME: /root
+
+- name: Start Proxy in background
   shell: |
     nohup kubectl proxy --address='0.0.0.0' --accept-hosts='.*' --port=8001 > /tmp/kubectl-proxy.log 2>&1 &
   become: yes
@@ -46,3 +44,4 @@
   poll: 0
   environment:
     HOME: /root
+
