@@ -11,15 +11,25 @@
     state: directory
     mode: '0755'
 
+# ВИПРАВЛЕННЯ: Видаляємо старі файли, які викликають помилку "Conflicting values"
+- name: Remove old Docker repository files to avoid conflicts
+  file:
+    path: "{{ item }}"
+    state: absent
+  with_items:
+    - /etc/apt/sources.list.d/docker.list
+    - /etc/apt/sources.list.d/download_docker_com_linux_ubuntu.list
+
 - name: Download Docker GPG key
   shell: |
-    curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+    curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor --yes -o /etc/apt/keyrings/docker.gpg
   args:
-    creates: /etc/apt/keyrings/docker.gpg
+    # Ми прибрали creates, щоб переписати ключ, якщо він був пошкоджений
+    executable: /bin/bash
 
 - name: Add Docker repository
   apt_repository:
-    # Використовуємо ansible_distribution_release для Noble/Jammy та вказуємо шлях до ключа
+    # Використовуємо один чіткий файл 'docker.list' через параметр filename
     repo: "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
     state: present
     filename: docker
@@ -46,9 +56,3 @@
     name: root
     groups: docker
     append: yes
-
-
-
-
-
-
