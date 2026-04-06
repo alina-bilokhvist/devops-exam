@@ -7,6 +7,7 @@ on:
       environment:
         description: 'Deployment environment'
         required: true
+        default: 'both'
         type: choice
         options:
           - dev
@@ -24,7 +25,6 @@ jobs:
   build:
     name: Build Docker Images
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout application source (develop branch)
         uses: actions/checkout@v4
@@ -46,21 +46,22 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      - name: Build and push DEV image (from develop branch)
-        if: inputs.environment == 'dev' || inputs.environment == 'both'
+      - name: Build and push DEV image
+        if: github.event.inputs.environment == 'dev' || github.event.inputs.environment == 'both'
         uses: docker/build-push-action@v5
         with:
           context: app-dev
           push: true
-          tags: ${{ secrets.DOCKER_USERNAME }}/devops-exam:develop
+          # Лапки запобігають помилці "invalid reference format"
+          tags: "${{ secrets.DOCKER_USERNAME }}/devops-exam:develop"
 
-      - name: Build and push RELEASE image (from tag 1.0.0)
-        if: inputs.environment == 'release' || inputs.environment == 'both'
+      - name: Build and push RELEASE image
+        if: github.event.inputs.environment == 'release' || github.event.inputs.environment == 'both'
         uses: docker/build-push-action@v5
         with:
           context: app-release
           push: true
-          tags: ${{ secrets.DOCKER_USERNAME }}/devops-exam:1.0.0
+          tags: "${{ secrets.DOCKER_USERNAME }}/devops-exam:1.0.0"
 
   # ============================================================
   # JOB 2: Розгортання
@@ -69,7 +70,6 @@ jobs:
     name: Deploy to Kubernetes
     needs: build
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout this repo
         uses: actions/checkout@v4
@@ -82,103 +82,49 @@ jobs:
       - name: Install kubectl
         uses: azure/setup-kubectl@v3
 
-     - name: Get kubeconfig from VM
+      - name: Get kubeconfig from VM
         run: |
           # Генеруємо переносний конфіг з вбудованими сертифікатами
-          ssh -i /tmp/exam_key -o StrictHostKeyChecking=no root@${{ inputs.vm_ip }} \
+          ssh -i /tmp/exam_key -o StrictHostKeyChecking=no root@${{ github.event.inputs.vm_ip }} \
           "kubectl config view --raw --flatten" > /tmp/kubeconfig
+          
           # Замінюємо внутрішній IP на зовнішній
-          sed -i "s/127.0.0.1/${{ inputs.vm_ip }}/g" /tmp/kubeconfig
+          sed -i "s/127.0.0.1/${{ github.event.inputs.vm_ip }}/g" /tmp/kubeconfig
 
-          # Перевіряємо, чи працює (для логів)
-          export KUBECONFIG=/tmp/kubeconfig
-          kubectl cluster-info
-|
-      # ПЕРЕВІРКА ПРАВИЛЬНОСТІ МАНІФЕСТІВ (dry-run) — без реального розгортання
-      # Якщо dry-run не проходить — pipeline зупиняється
-      - name: Validate DEV manifests (dry-run)
-        if: inputs.environment == 'dev' || inputs.environment == 'both'
-        env:
-          KUBECONFIG: /tmp/kubeconfig
-        run: |
-          # Підставляємо ім'я образу
-          sed "s|YOUR_DOCKER_USERNAME|${{ secrets.DOCKER_USERNAME }}|g" \
-            task3/k8s/dev/deployment.yml | \
-          kubectl apply --dry-run=server -f -
-
-      - name: Validate RELEASE manifests (dry-run)
-        if: inputs.environment == 'release' || inputs.environment == 'both'
-        env:
-          KUBECONFIG: /tmp/kubeconfig
-        run: |
-          sed "s|YOUR_DOCKER_USERNAME|${{ secrets.DOCKER_USERNAME }}|g" \
-            task3/k8s/release/deployment.yml | \
-          kubectl apply --dry-run=server -f -
-
-      # Реальне розгортання DEV
-      - name: Deploy DEV environment
-        if: inputs.environment == 'dev' || inputs.environment == 'both'
+      - name: Validate and Deploy DEV
+        if: github.event.inputs.environment == 'dev' || github.event.inputs.environment == 'both'
         env:
           KUBECONFIG: /tmp/kubeconfig
         run: |
           kubectl apply -f task3/k8s/dev/namespace.yml
-          sed "s|YOUR_DOCKER_USERNAME|${{ secrets.DOCKER_USERNAME }}|g" \
-            task3/k8s/dev/deployment.yml | \
-          kubectl apply -f -
+          sed "s|YOUR_DOCKER_USERNAME|${{ secrets.DOCKER_USERNAME }}|g" task3/k8s/dev/deployment.yml | kubectl apply -f -
           kubectl rollout status deployment/devops-app-dev -n dev --timeout=120s
 
-      # Реальне розгортання RELEASE
-      - name: Deploy RELEASE environment
-        if: inputs.environment == 'release' || inputs.environment == 'both'
+      - name: Validate and Deploy RELEASE
+        if: github.event.inputs.environment == 'release' || github.event.inputs.environment == 'both'
         env:
           KUBECONFIG: /tmp/kubeconfig
         run: |
           kubectl apply -f task3/k8s/release/namespace.yml
-          sed "s|YOUR_DOCKER_USERNAME|${{ secrets.DOCKER_USERNAME }}|g" \
-            task3/k8s/release/deployment.yml | \
-          kubectl apply -f -
+          sed "s|YOUR_DOCKER_USERNAME|${{ secrets.DOCKER_USERNAME }}|g" task3/k8s/release/deployment.yml | kubectl apply -f -
           kubectl rollout status deployment/devops-app-release -n release --timeout=120s
 
-      # Port-forward для доступу до застосунків
       - name: Setup port-forwarding on VM
         run: |
-          ssh -i /tmp/exam_key -o StrictHostKeyChecking=no root@${{ inputs.vm_ip }} << 'EOF'
-            # Вбиваємо старі port-forward процеси
+          ssh -i /tmp/exam_key -o StrictHostKeyChecking=no root@${{ github.event.inputs.vm_ip }} << 'EOF'
             pkill -f "kubectl port-forward" || true
             sleep 2
-
-            # DEV: порт 8002
-            nohup kubectl port-forward \
-              svc/devops-app-dev 8002:8002 \
-              -n dev \
-              --address='0.0.0.0' \
-              > /var/log/pf-dev.log 2>&1 &
-
-            # RELEASE: порт 8003
-            nohup kubectl port-forward \
-              svc/devops-app-release 8003:8003 \
-              -n release \
-              --address='0.0.0.0' \
-              > /var/log/pf-release.log 2>&1 &
-
-            echo "Port-forwarding started"
-            sleep 3
-            ps aux | grep "kubectl port-forward"
+            nohup kubectl port-forward svc/devops-app-dev 8002:8002 -n dev --address='0.0.0.0' > /var/log/pf-dev.log 2>&1 &
+            nohup kubectl port-forward svc/devops-app-release 8003:8003 -n release --address='0.0.0.0' > /var/log/pf-release.log 2>&1 &
           EOF
 
       - name: Show deployment info
         env:
           KUBECONFIG: /tmp/kubeconfig
         run: |
-          echo "=== DEV namespace ==="
-          kubectl get all -n dev
-          echo ""
-          echo "=== RELEASE namespace ==="
-          kubectl get all -n release
-          echo ""
           echo "Application URLs:"
-          echo "  DEV:     http://${{ inputs.vm_ip }}:8002"
-          echo "  RELEASE: http://${{ inputs.vm_ip }}:8003"
+          echo "DEV: http://${{ github.event.inputs.vm_ip }}:8002"
+          echo "RELEASE: http://${{ github.event.inputs.vm_ip }}:8003"
 
       - name: Cleanup
         if: always()
