@@ -6,17 +6,21 @@
     mode: '0755'
 
 - name: Cleanup previous Minikube state
-  command: minikube delete
+  command: minikube delete --all --purge
   ignore_errors: yes
   become: yes
   environment:
     HOME: /root
 
-- name: Start Minikube (with NONE driver)
+- name: Start Minikube (Docker driver as root)
   shell: |
     minikube start \
-      --driver=none \
-      --force
+      --driver=docker \
+      --force \
+      --cpus=2 \
+      --memory=4096 \
+      --listen-address=0.0.0.0 \
+      --ports=30000-32767:30000-32767
   become: yes
   environment:
     HOME: /root
@@ -42,5 +46,8 @@
       --disable-filter=true \
       > /var/log/kubectl-proxy.log 2>&1 &
   become: yes
+  async: 10
+  poll: 0
   environment:
     HOME: /root
+
