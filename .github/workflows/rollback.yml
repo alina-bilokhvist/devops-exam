@@ -7,13 +7,12 @@ on:
       branch:
         description: 'Гілка, з якої треба видалити останній коміт'
         required: true
-        default: 'main'
+        default: 'develop'
         type: string
 
-# ДОДАЄМО ПРАВО НА WORKFLOWS
+# Дозволяємо воркфлоу змінювати вміст репозиторію
 permissions:
   contents: write
-  workflows: write
 
 jobs:
   rollback-commit:
@@ -25,22 +24,27 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.inputs.branch }}
-          fetch-depth: 0
+          fetch-depth: 0 # Завантажуємо всю історію, щоб мати змогу відкотитися назад
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Reset and Force Push
         run: |
+          # Налаштування користувача Git
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           
-          # Відкат на 1 коміт назад
+          echo "Поточний останній коміт: $(git log -1 --oneline)"
+          
+          # Жорсткий відкат на один коміт назад
           git reset --hard HEAD~1
           
-          # Force push у вказану гілку
+          echo "Новий останній коміт: $(git log -1 --oneline)"
+          
+          # Примусове оновлення гілки в GitHub (видаляє коміт на сервері)
           git push origin ${{ github.event.inputs.branch }} --force
 
       - name: Summary
         if: success()
         run: |
           echo "### Git Rollback Successful! :wastebasket:" >> $GITHUB_STEP_SUMMARY
-          echo "Останній коміт з файлами воркфлоу успішно видалено." >> $GITHUB_STEP_SUMMARY
+          echo "Останній коміт успішно видалено з гілки **${{ github.event.inputs.branch }}**." >> $GITHUB_STEP_SUMMARY
