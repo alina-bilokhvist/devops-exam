@@ -5,14 +5,28 @@
     dest: /usr/local/bin/minikube
     mode: '0755'
 
-- name: Start Minikube (with Docker driver, no VM needed)
+# Крок для запобігання помилок, якщо попередній запуск був невдалим
+- name: Cleanup previous Minikube state
+  command: minikube delete
+  ignore_errors: yes
+  become: yes
+  environment:
+    HOME: /root
+
+- name: Start Minikube (with Docker driver)
   shell: |
     minikube start \
       --driver=docker \
       --force \
       --cpus=2 \
-      --memory=2048 \
+      --memory=4096 \
       --ports=30000-32767:30000-32767
+  become: yes
+  environment:
+    HOME: /root
+
+- name: Wait for Minikube to be ready
+  command: kubectl wait --for=condition=Ready nodes --all --timeout=60s
   become: yes
   environment:
     HOME: /root
@@ -24,7 +38,7 @@
     HOME: /root
 
 # Прокидання проксі для доступу до Minikube Dashboard ззовні
-- name: Start Minikube proxy (background)
+- name: Start kubectl proxy (background)
   shell: |
     nohup kubectl proxy \
       --address='0.0.0.0' \
@@ -36,7 +50,7 @@
   environment:
     HOME: /root
 
-- name: Start Minikube dashboard proxy (background)
+- name: Start Minikube dashboard (background)
   shell: |
     nohup minikube dashboard \
       --url \
@@ -45,7 +59,4 @@
   environment:
     HOME: /root
   ignore_errors: yes
-
-
-
 
