@@ -26,28 +26,38 @@ jobs:
           sudo apt update
           sudo apt install -y python3 python3-pip
           pip3 install ansible
-          # Перевіряємо версію для дебагу
           ansible --version
 
       - name: Setup Ansible Config
         run: |
-          # Створюємо або перезаписуємо ansible.cfg, щоб уникнути конфліктів плагінів
+          # Створюємо конфігурацію, сумісну з новими версіями Ansible (2.13+)
           cat <<EOF > ansible.cfg
           [defaults]
           inventory           = inventory/hosts.yml
           host_key_checking   = False
-          stdout_callback     = yaml
+          stdout_callback     = default
           bin_ansible_callbacks = True
+          result_format       = yaml
           EOF
 
       - name: Pre-installation checks (Ansible check mode)
         env:
-          # Примусово вказуємо шлях до конфігу та вимикаємо застарілий плагін через ENV
           ANSIBLE_CONFIG: ./ansible.cfg
-          ANSIBLE_STDOUT_CALLBACK: yaml
+          ANSIBLE_STDOUT_CALLBACK: default
+          ANSIBLE_RESULT_FORMAT: yaml
         run: |
           ansible-playbook playbooks/check.yml \
             -i "${{ github.event.inputs.vm_ip }}," \
             --extra-vars "target_ip=${{ github.event.inputs.vm_ip }}" \
             --check
 
+      - name: Run Main Installation
+        env:
+          ANSIBLE_CONFIG: ./ansible.cfg
+          ANSIBLE_STDOUT_CALLBACK: default
+          ANSIBLE_RESULT_FORMAT: yaml
+        # Цей крок виконається, тільки якщо Pre-installation checks пройшли успішно
+        run: |
+          ansible-playbook playbooks/install.yml \
+            -i "${{ github.event.inputs.vm_ip }}," \
+            --extra-vars "target_ip=${{ github.event.inputs.vm_ip }}"
