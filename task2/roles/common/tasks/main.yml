@@ -80,4 +80,19 @@
   args:
     creates: /usr/local/bin/cri-dockerd
 
+- name: Install CNI plugins
+  shell: |
+    # Створюємо директорію для плагінів
+    mkdir -p /opt/cni/bin
+    # Визначаємо версію
+    CNI_VERSION="v1.4.0"
+    ARCH="amd64"
+    # Завантажуємо та розпаковуємо
+    curl -L "https://github.com/containernetworking/plugins/releases/download/${CNI_VERSION}/cni-plugins-linux-${ARCH}-${CNI_VERSION}.tgz" --output cni-plugins.tgz
+    tar -C /opt/cni/bin -xzf cni-plugins.tgz
+    # Чистимо за собою
+    rm -f cni-plugins.tgz
+  args:
+    creates: /opt/cni/bin/bridge
+
 
