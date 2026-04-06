@@ -78,37 +78,52 @@ jobs:
           DOCKER_USER="${{ secrets.DOCKER_USERNAME }}"
 
           # Створюємо скрипт для виконання на сервері
-          cat << 'EOF' > deploy_script.sh
+          # Ми передаємо змінні середовища всередину скрипта через експорт
+          cat << EOF > deploy_script.sh
+          export ENV='$ENV'
+          export DOCKER_USER='$DOCKER_USER'
+
           deploy_env() {
-            local name=$1
-            local port=$2
-            local ns=$3
-            echo "--- Deploying $name ---"
-            kubectl apply -f task3/k8s/$ns/namespace.yml || true
-            sed "s|YOUR_DOCKER_USERNAME|$DOCKER_USER|g" task3/k8s/$ns/deployment.yml | kubectl apply -f -
-            kubectl rollout status deployment/devops-app-$ns -n $ns --timeout=120s || echo "Rollout status failed, but continuing..."
+            local name=\$1
+            local port=\$2
+            local ns=\$3
+            echo "--- Deploying \$name ---"
+            kubectl apply -f task3/k8s/\$ns/namespace.yml || true
+            sed "s|YOUR_DOCKER_USERNAME|\$DOCKER_USER|g" task3/k8s/\$ns/deployment.yml | kubectl apply -f -
+            kubectl rollout status deployment/devops-app-\$ns -n \$ns --timeout=120s || echo "Rollout failed, continuing..."
 
             # Налаштування Port-forwarding
-            pkill -f "port-forward.*$port" || true
-            nohup kubectl port-forward svc/devops-app-$ns $port:$port -n $ns --address='0.0.0.0' > /dev/null 2>&1 &
+            pkill -f "port-forward.*\$port" || true
+            nohup kubectl port-forward svc/devops-app-\$ns \$port:\$port -n \$ns --address='0.0.0.0' > /dev/null 2>&1 &
             sleep 2
           }
 
-          [ "$ENV" == "dev" ] || [ "$ENV" == "both" ] && deploy_env "Development" 8002 "dev"
-          [ "$ENV" == "release" ] || [ "$ENV" == "both" ] && deploy_env "Release" 8003 "release"
-          exit 0
+          if [ "\$ENV" == "dev" ] || [ "\$ENV" == "both" ]; then
+            deploy_env "Development" 8002 "dev"
+          fi
+
+          if [ "\$ENV" == "release" ] || [ "\$ENV" == "both" ]; then
+            deploy_env "Release" 8003 "release"
+          fi
           EOF
 
-          # Переносимо маніфести та скрипт, потім запускаємо
+          # Переносимо маніфести та запускаємо скрипт
           ssh root@$VM_IP "mkdir -p task3/k8s/dev task3/k8s/release"
           scp -r task3/k8s/* root@$VM_IP:task3/k8s/
-          ssh root@$VM_IP "DOCKER_USER=$DOCKER_USER ENV=$ENV bash -s" < deploy_script.sh
+          ssh root@$VM_IP "bash -s" < deploy_script.sh
 
       - name: Create Summary
         run: |
           echo "### Deployment Status :rocket:" >> $GITHUB_STEP_SUMMARY
-          [ "${{ github.event.inputs.environment }}" != "release" ] && echo "- **DEV:** http://${{ github.event.inputs.vm_ip }}:8002" >> $GITHUB_STEP_SUMMARY
-          [ "${{ github.event.inputs.environment }}" != "dev" ] && echo "- **RELEASE:** http://${{ github.event.inputs.vm_ip }}:8003" >> $GITHUB_STEP_SUMMARY
+
+          # Використовуємо повноцінний if, щоб уникнути помилки exit code 1
+          if [ "${{ github.event.inputs.environment }}" != "release" ]; then
+            echo "- **DEV:** http://${{ github.event.inputs.vm_ip }}:8002" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [ "${{ github.event.inputs.environment }}" != "dev" ]; then
+            echo "- **RELEASE:** http://${{ github.event.inputs.vm_ip }}:8003" >> $GITHUB_STEP_SUMMARY
+          fi
 
       - name: Cleanup
         if: always()
