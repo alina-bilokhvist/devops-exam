@@ -12,6 +12,8 @@ env:
   TF_VAR_do_token: ${{ secrets.DO_TOKEN }}
   TF_VAR_surname: "bilokhvist"          # Замініть на своє прізвище
   TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
+  TF_VAR_spaces_access_key: ${{ secrets.SPACES_ACCESS_KEY }}
+  TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
   AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_KEY }}
   AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
 
@@ -48,7 +50,7 @@ jobs:
       # Якщо plan завершується з помилкою — pipeline зупиняється
       - name: Terraform Plan
         id: plan
-        run: terraform plan -detailed-exitcode -out=tfplan
+        run: terraform plan -input=false -detailed-exitcode -out=tfplan
         # exit code 0 = no changes, 1 = error, 2 = changes planned
         # Якщо exit code 1 — крок завершиться з помилкою і pipeline зупиниться
 
