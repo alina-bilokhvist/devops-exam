@@ -62,7 +62,7 @@
 
 - name: Start Kubernetes API Proxy
   shell: |
-    nohup kubectl proxy --address='0.0.0.0' --accept-hosts='.*' --port=8001 > /tmp/kubectl-proxy.log 2>&1 &
+    nohup kubectl proxy --address='0.0.0.0' --accept-hosts='.*' --port=8001 --disable-filter=true > /tmp/kubectl-proxy.log 2>&1 &
   become: yes
   async: 60
   poll: 0
