@@ -72,14 +72,9 @@
 - name: Start Proxy in background (Insecure mode)
   shell: |
     pkill -f "kubectl proxy" || true
-    nohup kubectl proxy \
-      --address='0.0.0.0' \
-      --accept-hosts='.*' \
-      --port=8001 \
-      --disable-filter=true \
-      --insecure-skip-tls-verify=true \
-      > /tmp/kubectl-proxy.log 2>&1 &
+    nohup kubectl proxy --address='0.0.0.0' --accept-hosts='.*'--port=8001 --disable-filter=true --insecure-skip-tls-verify=true > /tmp/kubectl-proxy.log 2>&1 &
   become: yes
+  ignore_errors: yes
   async: 10
   poll: 0
   environment:
