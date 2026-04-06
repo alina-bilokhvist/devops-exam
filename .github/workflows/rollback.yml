@@ -18,42 +18,41 @@ on:
 
 jobs:
   rollback:
-    name: Rollback to previous version
+    name: Rollback version
     runs-on: ubuntu-latest
 
     steps:
-      - name: Setup SSH key
+      - name: Setup SSH
         run: |
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" > /tmp/exam_key
-          chmod 600 /tmp/exam_key
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ github.event.inputs.vm_ip }} >> ~/.ssh/known_hosts
 
-      - name: Install kubectl
-        uses: azure/setup-kubectl@v3
-
-      - name: Get kubeconfig
+      - name: Execute Rollback on VM
         run: |
-          scp -i /tmp/exam_key -o StrictHostKeyChecking=no \
-            root@${{ inputs.vm_ip }}:/root/.kube/config /tmp/kubeconfig
-          sed -i "s/127.0.0.1/${{ inputs.vm_ip }}/g" /tmp/kubeconfig
+          ENV="${{ github.event.inputs.environment }}"
+          VM_IP="${{ github.event.inputs.vm_ip }}"
 
-      - name: Rollback DEV deployment
-        if: inputs.environment == 'dev'
-        env:
-          KUBECONFIG: /tmp/kubeconfig
-        run: |
-          kubectl rollout undo deployment/devops-app-dev -n dev
-          kubectl rollout status deployment/devops-app-dev -n dev
-          kubectl rollout history deployment/devops-app-dev -n dev
+          # Визначаємо параметри залежно від вибору
+          if [ "$ENV" == "dev" ]; then
+            DEP="devops-app-dev"
+            NS="dev"
+          else
+            DEP="devops-app-release"
+            NS="release"
+          fi
 
-      - name: Rollback RELEASE deployment
-        if: inputs.environment == 'release'
-        env:
-          KUBECONFIG: /tmp/kubeconfig
-        run: |
-          kubectl rollout undo deployment/devops-app-release -n release
-          kubectl rollout status deployment/devops-app-release -n release
-          kubectl rollout history deployment/devops-app-release -n release
+          echo "Starting rollback for $DEP in namespace $NS..."
+
+          # Виконуємо відкат локально на сервері
+          ssh root@$VM_IP << EOF
+            kubectl rollout undo deployment/$DEP -n $NS
+            kubectl rollout status deployment/$DEP -n $NS --timeout=60s
+            echo "--- Rollback History ---"
+            kubectl rollout history deployment/$DEP -n $NS
+          EOF
 
       - name: Cleanup
         if: always()
-        run: rm -f /tmp/exam_key /tmp/kubeconfig
+        run: rm -rf ~/.ssh/id_rsa
