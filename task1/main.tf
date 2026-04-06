@@ -72,7 +72,7 @@ resource "digitalocean_ssh_key" "exam" {
 resource "digitalocean_droplet" "node" {
   name     = "${var.surname}-node"
   region   = var.region
-  size     = "s-2vcpu-4gb"
+  size     = "s-4vcpu-8gb"
   image    = "ubuntu-24-04-x64"
   vpc_uuid = digitalocean_vpc.main.id
   ssh_keys = [digitalocean_ssh_key.exam.fingerprint]
