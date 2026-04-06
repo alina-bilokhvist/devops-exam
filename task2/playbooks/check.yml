@@ -1,4 +1,3 @@
-************************
 ---
 # playbooks/check.yml
 - name: Pre-installation checks
