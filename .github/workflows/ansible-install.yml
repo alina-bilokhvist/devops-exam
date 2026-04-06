@@ -25,7 +25,6 @@ jobs:
       - name: Install SSH Key
         uses: shimataro/ssh-key-action@v2
         with:
-          # Секрет SSH_PRIVATE_KEY має бути доданий у Settings вашого репозиторію
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           known_hosts: unnecessary
           if_key_exists: replace
@@ -46,9 +45,11 @@ jobs:
           stdout_callback     = default
           bin_ansible_callbacks = True
           result_format       = yaml
+          # ВИПРАВЛЕННЯ: Вказуємо шлях до ролей, бо вони в task2/roles
+          roles_path          = ./roles
           EOF
 
-      # КРОК 2: Перевірка (Check mode) з використанням користувача root
+      # КРОК 2: Перевірка (Check mode)
       - name: Pre-installation checks (Ansible check mode)
         env:
           ANSIBLE_CONFIG: ./ansible.cfg
@@ -72,4 +73,3 @@ jobs:
             -i "${{ github.event.inputs.vm_ip }}," \
             -u root \
             --extra-vars "target_ip=${{ github.event.inputs.vm_ip }}"
-
