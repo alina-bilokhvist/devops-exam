@@ -7,12 +7,13 @@ on:
       branch:
         description: 'Гілка, з якої треба видалити останній коміт'
         required: true
-        default: 'develop'
+        default: 'main'
         type: string
 
-# Дозволяємо воркфлоу змінювати вміст репозиторію
+# Надаємо розширені права для роботи з контентом та воркфлоу
 permissions:
   contents: write
+  workflows: write
 
 jobs:
   rollback-commit:
@@ -24,23 +25,23 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.inputs.branch }}
-          fetch-depth: 0 # Завантажуємо всю історію, щоб мати змогу відкотитися назад
+          fetch-depth: 0 # Завантажуємо всю історію для можливості відкату
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Reset and Force Push
         run: |
-          # Налаштування користувача Git
+          # Налаштування ідентифікації користувача
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           
           echo "Поточний останній коміт: $(git log -1 --oneline)"
           
-          # Жорсткий відкат на один коміт назад
+          # Жорстке повернення на один коміт назад
           git reset --hard HEAD~1
           
           echo "Новий останній коміт: $(git log -1 --oneline)"
           
-          # Примусове оновлення гілки в GitHub (видаляє коміт на сервері)
+          # Примусове оновлення гілки (Force Push)
           git push origin ${{ github.event.inputs.branch }} --force
 
       - name: Summary
