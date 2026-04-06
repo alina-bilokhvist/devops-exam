@@ -29,3 +29,16 @@
       - socat
     state: present
 
+- name: Create a new user for Minikube
+  user:
+    name: devops
+    shell: /bin/bash
+    groups: docker,sudo
+    append: yes
+    create_home: yes
+
+- name: Allow devops user to use sudo without password
+  copy:
+    content: "devops ALL=(ALL) NOPASSWD:ALL"
+    dest: /etc/sudoers.d/devops
+    mode: '0440'
