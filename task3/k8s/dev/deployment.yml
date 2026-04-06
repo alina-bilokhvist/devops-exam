@@ -32,6 +32,6 @@ spec:
     app: devops-app
   ports:
     - protocol: TCP
-      port: 8004          # зовнішній порт
+      port: 8002          # зовнішній порт
       targetPort: 8000    # порт контейнера
   type: NodePort
