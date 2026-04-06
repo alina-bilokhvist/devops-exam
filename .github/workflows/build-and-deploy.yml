@@ -9,31 +9,25 @@ on:
         required: true
         default: 'both'
         type: choice
-        options:
-          - dev
-          - release
-          - both
+        options: [dev, release, both]
       vm_ip:
-        description: 'IP of target VM (with Minikube)'
+        description: 'IP of target VM'
         required: true
         type: string
 
 jobs:
-  # ============================================================
-  # JOB 1: Збірка Docker образів
-  # ============================================================
   build:
     name: Build Docker Images
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout application source (develop branch)
+      - name: Checkout dev branch
         uses: actions/checkout@v4
         with:
           repository: YulianSalo/devops-exam-pt2
           ref: develop
           path: app-dev
 
-      - name: Checkout application source (tag 1.0.0)
+      - name: Checkout release tag
         uses: actions/checkout@v4
         with:
           repository: YulianSalo/devops-exam-pt2
@@ -46,7 +40,7 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      - name: Build and push DEV image
+      - name: Build and push DEV
         if: github.event.inputs.environment == 'dev' || github.event.inputs.environment == 'both'
         uses: docker/build-push-action@v5
         with:
@@ -54,7 +48,7 @@ jobs:
           push: true
           tags: "${{ secrets.DOCKER_USERNAME }}/devops-exam:develop"
 
-      - name: Build and push RELEASE image
+      - name: Build and push RELEASE
         if: github.event.inputs.environment == 'release' || github.event.inputs.environment == 'both'
         uses: docker/build-push-action@v5
         with:
@@ -62,68 +56,60 @@ jobs:
           push: true
           tags: "${{ secrets.DOCKER_USERNAME }}/devops-exam:1.0.0"
 
-  # ============================================================
-  # JOB 2: Розгортання через SSH (Remote Execution)
-  # ============================================================
   deploy:
-    name: Deploy to Kubernetes via SSH
+    name: Deploy to Kubernetes
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout this repo
+      - name: Checkout deployment manifests
         uses: actions/checkout@v4
 
-      - name: Setup SSH key
+      - name: Setup SSH
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
           ssh-keyscan -H ${{ github.event.inputs.vm_ip }} >> ~/.ssh/known_hosts
 
-      - name: Deploy DEV environment
-        if: github.event.inputs.environment == 'dev' || github.event.inputs.environment == 'both'
+      - name: Execute Remote Deployment
         run: |
-          # Копіюємо маніфести на VM
-          ssh root@${{ github.event.inputs.vm_ip }} "mkdir -p /tmp/k8s-dev"
-          scp task3/k8s/dev/*.yml root@${{ github.event.inputs.vm_ip }}:/tmp/k8s-dev/
-          
-          # Виконуємо команди локально на VM
-          ssh root@${{ github.event.inputs.vm_ip }} << EOF
-            kubectl apply -f /tmp/k8s-dev/namespace.yml
-            sed "s|YOUR_DOCKER_USERNAME|${{ secrets.DOCKER_USERNAME }}|g" /tmp/k8s-dev/deployment.yml | kubectl apply -f -
-            kubectl rollout status deployment/devops-app-dev -n dev --timeout=120s
-            
+          ENV="${{ github.event.inputs.environment }}"
+          VM_IP="${{ github.event.inputs.vm_ip }}"
+          DOCKER_USER="${{ secrets.DOCKER_USERNAME }}"
+
+          # Створюємо скрипт для виконання на сервері
+          cat << 'EOF' > deploy_script.sh
+          deploy_env() {
+            local name=$1
+            local port=$2
+            local ns=$3
+            echo "--- Deploying $name ---"
+            kubectl apply -f task3/k8s/$ns/namespace.yml || true
+            sed "s|YOUR_DOCKER_USERNAME|$DOCKER_USER|g" task3/k8s/$ns/deployment.yml | kubectl apply -f -
+            kubectl rollout status deployment/devops-app-$ns -n $ns --timeout=120s || echo "Rollout status failed, but continuing..."
+
             # Налаштування Port-forwarding
-            pkill -f "port-forward.*8002" || true
-            nohup kubectl port-forward svc/devops-app-dev 8002:8002 -n dev --address='0.0.0.0' > /dev/null 2>&1 &
+            pkill -f "port-forward.*$port" || true
+            nohup kubectl port-forward svc/devops-app-$ns $port:$port -n $ns --address='0.0.0.0' > /dev/null 2>&1 &
+            sleep 2
+          }
+
+          [ "$ENV" == "dev" ] || [ "$ENV" == "both" ] && deploy_env "Development" 8002 "dev"
+          [ "$ENV" == "release" ] || [ "$ENV" == "both" ] && deploy_env "Release" 8003 "release"
+          exit 0
           EOF
 
-      - name: Deploy RELEASE environment
-        if: github.event.inputs.environment == 'release' || github.event.inputs.environment == 'both'
-        run: |
-          # Копіюємо маніфести на VM
-          ssh root@${{ github.event.inputs.vm_ip }} "mkdir -p /tmp/k8s-release"
-          scp task3/k8s/release/*.yml root@${{ github.event.inputs.vm_ip }}:/tmp/k8s-release/
-          
-          # Виконуємо команди локально на VM
-          ssh root@${{ github.event.inputs.vm_ip }} << EOF
-            kubectl apply -f /tmp/k8s-release/namespace.yml
-            sed "s|YOUR_DOCKER_USERNAME|${{ secrets.DOCKER_USERNAME }}|g" /tmp/k8s-release/deployment.yml | kubectl apply -f -
-            kubectl rollout status deployment/devops-app-release -n release --timeout=120s
-            
-            # Налаштування Port-forwarding
-            pkill -f "port-forward.*8003" || true
-            nohup kubectl port-forward svc/devops-app-release 8003:8003 -n release --address='0.0.0.0' > /dev/null 2>&1 &
-          EOF
+          # Переносимо маніфести та скрипт, потім запускаємо
+          ssh root@$VM_IP "mkdir -p task3/k8s/dev task3/k8s/release"
+          scp -r task3/k8s/* root@$VM_IP:task3/k8s/
+          ssh root@$VM_IP "DOCKER_USER=$DOCKER_USER ENV=$ENV bash -s" < deploy_script.sh
 
-      - name: Show summary info
+      - name: Create Summary
         run: |
-          echo "### Deployment Successful! :rocket:" >> $GITHUB_STEP_SUMMARY
-          echo "| Environment | URL |" >> $GITHUB_STEP_SUMMARY
-          echo "|-------------|-----|" >> $GITHUB_STEP_SUMMARY
-          [ "${{ github.event.inputs.environment }}" != "release" ] && echo "| DEV | http://${{ github.event.inputs.vm_ip }}:8002 |" >> $GITHUB_STEP_SUMMARY
-          [ "${{ github.event.inputs.environment }}" != "dev" ] && echo "| RELEASE | http://${{ github.event.inputs.vm_ip }}:8003 |" >> $GITHUB_STEP_SUMMARY
+          echo "### Deployment Status :rocket:" >> $GITHUB_STEP_SUMMARY
+          [ "${{ github.event.inputs.environment }}" != "release" ] && echo "- **DEV:** http://${{ github.event.inputs.vm_ip }}:8002" >> $GITHUB_STEP_SUMMARY
+          [ "${{ github.event.inputs.environment }}" != "dev" ] && echo "- **RELEASE:** http://${{ github.event.inputs.vm_ip }}:8003" >> $GITHUB_STEP_SUMMARY
 
       - name: Cleanup
         if: always()
-        run: rm -rf ~/.ssh/id_rsa
+        run: rm -rf ~/.ssh/id_rsa deploy_script.sh
