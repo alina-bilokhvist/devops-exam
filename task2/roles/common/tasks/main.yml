@@ -57,5 +57,27 @@
     dest: /etc/sudoers.d/devops
     mode: '0440'
 
+- name: Install cri-dockerd
+  shell: |
+    # Визначаємо останню версію
+    VERSION="0.3.15"
+    # Завантажуємо архів
+    curl -L https://github.com/Mirantis/cri-dockerd/releases/download/v${VERSION}/cri-dockerd-${VERSION}.amd64.tgz --output cri-dockerd.tgz
+    tar zxvf cri-dockerd.tgz
+    # Копіюємо бінарник
+    install -o root -g root -m 0755 cri-dockerd/cri-dockerd /usr/local/bin/cri-dockerd
+    # Завантажуємо та налаштовуємо системні сервіси (systemd)
+    wget https://raw.githubusercontent.com/Mirantis/cri-dockerd/master/packaging/systemd/cri-docker.service
+    wget https://raw.githubusercontent.com/Mirantis/cri-dockerd/master/packaging/systemd/cri-docker.socket
+    mv cri-docker.service cri-docker.socket /etc/systemd/system/
+    sed -i -e 's,/usr/bin/cri-dockerd,/usr/local/bin/cri-dockerd,' /etc/systemd/system/cri-docker.service
+    # Запускаємо сервіс
+    systemctl daemon-reload
+    systemctl enable --now cri-docker.socket
+    systemctl enable --now cri-docker.service
+    # Чистимо сміття
+    rm -rf cri-dockerd.tgz cri-dockerd
+  args:
+    creates: /usr/local/bin/cri-dockerd
 
 

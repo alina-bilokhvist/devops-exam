@@ -14,11 +14,13 @@
   environment:
     HOME: /root
 
-- name: Start Minikube (THE ONLY WORKING WAY ON VM)
+- name: Start Minikube (none driver with )
   shell: |
     minikube start \
       --driver=none \
       --force \
+      --container-runtime=docker \
+      --extra-config=kubeadm.ignore-preflight-errors=NumCPU \
       --listen-address=0.0.0.0
   become: yes
   environment:
