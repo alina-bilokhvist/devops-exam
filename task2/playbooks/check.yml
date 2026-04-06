@@ -1,10 +1,10 @@
+************************
 ---
-# Цей playbook перевіряє доступність VM та вимоги ДО реального встановлення
-# Якщо перевірка не пройде — pipeline зупиниться
-
+# playbooks/check.yml
 - name: Pre-installation checks
   hosts: all
   gather_facts: yes
+  become: yes  # Бажано виконувати перевірки з правами root для доступу до системних даних
 
   tasks:
     - name: Check OS family (must be Debian/Ubuntu)
@@ -17,7 +17,7 @@
     - name: Check available RAM (minimum 2 GB for Minikube)
       assert:
         that:
-          - ansible_memtotal_mb >= 2048
+          - ansible_memtotal_mb >= 1900 # Ставимо трохи менше 2048, бо частина RAM резервується системою
         fail_msg: "ПОМИЛКА: Недостатньо RAM. Потрібно >= 2048 MB, доступно: {{ ansible_memtotal_mb }} MB"
         success_msg: "OK: RAM {{ ansible_memtotal_mb }} MB"
 
@@ -31,22 +31,28 @@
     - name: Check internet connectivity
       uri:
         url: https://google.com
-        method: GET
+        method: HEAD # HEAD швидше за GET, нам достатньо перевірити заголовок
+        status_code: [200, 301, 302] # Додаємо редіректи
         timeout: 10
       register: internet_check
+      ignore_errors: yes # Щоб ми могли видати гарне повідомлення через assert нижче
 
     - name: Assert internet is available
       assert:
         that:
-          - internet_check.status == 200
+          - internet_check is success
         fail_msg: "ПОМИЛКА: Немає доступу до інтернету"
         success_msg: "OK: Інтернет доступний"
 
     - name: Check disk space (minimum 20 GB free)
+      vars:
+        # Виносимо розрахунок у змінну для стабільності
+        root_mount: "{{ ansible_mounts | selectattr('mount', 'equalto', '/') | first }}"
       assert:
         that:
-          - (ansible_mounts | selectattr('mount', 'equalto', '/') | list | first).size_available > 20000000000
-        fail_msg: "ПОМИЛКА: Недостатньо дискового простору (менше 20 GB)"
-        success_msg: "OK: Достатньо дискового простору"
+          # 20 GB = 20 * 1024 * 1024 * 1024 байтів
+          - root_mount.size_available >= (20 * 1024 * 1024 * 1024)
+        fail_msg: "ПОМИЛКА: Недостатньо вільного місця. Доступно: {{ (root_mount.size_available / 1024 / 1024 / 1024) | round(2) }} GB"
+        success_msg: "OK: Достатньо вільного місця на диску"
 
 

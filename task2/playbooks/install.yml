@@ -2,10 +2,18 @@
 - name: Install all components
   hosts: all
   become: yes
+  # Можна додати змінні прямо сюди, якщо вони спільні для всіх ролей
+  vars:
+    ansible_python_interpreter: /usr/bin/python3
 
   roles:
-    - common
-    - docker
-    - kubernetes
-    - minikube
-    - helm
+    - role: common
+    - role: docker
+    # Переконайтеся, що ця роль лише ставить kubectl, а не весь кластер
+    - role: kubernetes
+    - role: minikube
+      vars:
+        # Приклад передачі драйвера, якщо роль це підтримує
+        minikube_driver: docker
+    - role: helm
+
