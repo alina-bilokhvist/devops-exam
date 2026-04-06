@@ -59,17 +59,25 @@
   environment:
     HOME: /root
 
-- name: Start Proxy in background
+
+- name: Start Kubernetes API Proxy
   shell: |
-    pkill -f "kubectl proxy" || true
-    nohup kubectl proxy \
-      --address='0.0.0.0' \
-      --accept-hosts='.*' \
-      --port=8001 \
-      --disable-filter=true \
-      > /tmp/kubectl-proxy.log 2>&1 &
+    nohup kubectl proxy --address='0.0.0.0' --accept-hosts='.*' --port=8001 > /tmp/kubectl-proxy.log 2>&1 &
   become: yes
-  async: 10
+  async: 60
   poll: 0
+  ignore_errors: yes
   environment:
     HOME: /root
+- name: Get external IP of the VM
+  shell: curl -s https://ifconfig.me
+  register: external_ip
+  changed_when: false
+
+- name: Show Minikube Dashboard URL
+  debug:
+    msg:
+      - "Minikube is READY"
+      - "1. Open this URL in browser: http://{{ external_ip.stdout }}:{{ proxy_port }}/api/v1/namespaces/kubernetes-dashboard/services/http:kubernetes-dashboard:/proxy/"
+      - "2. If you see 404, wait 30 seconds and refresh (pods are starting)."
+
