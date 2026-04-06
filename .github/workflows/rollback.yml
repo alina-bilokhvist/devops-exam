@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       environment:
-        description: 'Environment to rollback'
+        description: 'Environment to rollback (dev or release)'
         required: true
         type: choice
         options:
@@ -18,11 +18,11 @@ on:
 
 jobs:
   rollback:
-    name: Rollback version
+    name: Rollback to previous version
     runs-on: ubuntu-latest
 
     steps:
-      - name: Setup SSH
+      - name: Setup SSH key
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
@@ -31,28 +31,40 @@ jobs:
 
       - name: Execute Rollback on VM
         run: |
-          ENV="${{ github.event.inputs.environment }}"
-          VM_IP="${{ github.event.inputs.vm_ip }}"
-
-          # Визначаємо параметри залежно від вибору
-          if [ "$ENV" == "dev" ]; then
-            DEP="devops-app-dev"
-            NS="dev"
+          # Визначаємо змінні на основі вибору користувача
+          if [ "${{ github.event.inputs.environment }}" == "dev" ]; then
+            DEPLOYMENT="devops-app-dev"
+            NAMESPACE="dev"
           else
-            DEP="devops-app-release"
-            NS="release"
+            DEPLOYMENT="devops-app-release"
+            NAMESPACE="release"
           fi
 
-          echo "Starting rollback for $DEP in namespace $NS..."
+          echo "Starting rollback for $DEPLOYMENT in namespace $NAMESPACE..."
 
-          # Виконуємо відкат локально на сервері
-          ssh root@$VM_IP << EOF
-            kubectl rollout undo deployment/$DEP -n $NS
-            kubectl rollout status deployment/$DEP -n $NS --timeout=60s
-            echo "--- Rollback History ---"
-            kubectl rollout history deployment/$DEP -n $NS
+          # Виконуємо відкат безпосередньо на VM через SSH
+          ssh root@${{ github.event.inputs.vm_ip }} << EOF
+            echo "--- Current History ---"
+            kubectl rollout history deployment/$DEPLOYMENT -n $NAMESPACE
+            
+            echo "--- Performing Undo ---"
+            kubectl rollout undo deployment/$DEPLOYMENT -n $NAMESPACE
+            
+            echo "--- Waiting for Status ---"
+            kubectl rollout status deployment/$DEPLOYMENT -n $NAMESPACE --timeout=60s
+            
+            echo "--- New History ---"
+            kubectl rollout history deployment/$DEPLOYMENT -n $NAMESPACE
           EOF
+
+      - name: Create Summary
+        if: success()
+        run: |
+          echo "### Rollback Successful! :rewind:" >> $GITHUB_STEP_SUMMARY
+          echo "Environment: **${{ github.event.inputs.environment }}**" >> $GITHUB_STEP_SUMMARY
+          echo "Target VM: \`${{ github.event.inputs.vm_ip }}\`" >> $GITHUB_STEP_SUMMARY
 
       - name: Cleanup
         if: always()
         run: rm -rf ~/.ssh/id_rsa
+
