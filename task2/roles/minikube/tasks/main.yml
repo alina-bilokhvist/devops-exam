@@ -59,7 +59,6 @@
   environment:
     HOME: /root
 
-
 - name: Make certificates readable for deployment
   file:
     path: "{{ item }}"
@@ -72,10 +71,7 @@
 
 - name: Start Proxy in background (Insecure mode)
   shell: |
-    # Вбиваємо старі процеси
     pkill -f "kubectl proxy" || true
-
-    # Запускаємо проксі, який ігнорує перевірку сертифікатів (--insecure-skip-tls-verify)
     nohup kubectl proxy \
       --address='0.0.0.0' \
       --accept-hosts='.*' \
@@ -93,6 +89,6 @@
   debug:
     msg:
       - "Minikube is READY"
-      - "1. Open this URL in browser: http://{{ external_ip.stdout }}:8001/api/v1/namespaces/kubernetes-dashboard/services/http:kubernetes-dashboard:/proxy/"
-      - "2. If you see 404, wait 30 seconds and refresh (pods are starting)."
+      - "1. Open this URL: http://{{ ansible_host }}:8001/api/v1/namespaces/kubernetes-dashboard/services/http:kubernetes-dashboard:/proxy/"
+      - "2. If you see 'Permission Denied' or '404', wait 30 seconds and refresh."
 
