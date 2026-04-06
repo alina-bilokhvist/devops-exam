@@ -21,6 +21,15 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # КРОК 1: Встановлення SSH ключа для доступу до VM
+      - name: Install SSH Key
+        uses: shimataro/ssh-key-action@v2
+        with:
+          # Секрет SSH_PRIVATE_KEY має бути доданий у Settings вашого репозиторію
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          known_hosts: unnecessary
+          if_key_exists: replace
+
       - name: Install Ansible
         run: |
           sudo apt update
@@ -30,7 +39,6 @@ jobs:
 
       - name: Setup Ansible Config
         run: |
-          # Створюємо конфігурацію, сумісну з новими версіями Ansible (2.13+)
           cat <<EOF > ansible.cfg
           [defaults]
           inventory           = inventory/hosts.yml
@@ -40,6 +48,7 @@ jobs:
           result_format       = yaml
           EOF
 
+      # КРОК 2: Перевірка (Check mode) з використанням користувача root
       - name: Pre-installation checks (Ansible check mode)
         env:
           ANSIBLE_CONFIG: ./ansible.cfg
@@ -48,16 +57,19 @@ jobs:
         run: |
           ansible-playbook playbooks/check.yml \
             -i "${{ github.event.inputs.vm_ip }}," \
+            -u root \
             --extra-vars "target_ip=${{ github.event.inputs.vm_ip }}" \
             --check
 
+      # КРОК 3: Реальна інсталяція
       - name: Run Main Installation
         env:
           ANSIBLE_CONFIG: ./ansible.cfg
           ANSIBLE_STDOUT_CALLBACK: default
           ANSIBLE_RESULT_FORMAT: yaml
-        # Цей крок виконається, тільки якщо Pre-installation checks пройшли успішно
         run: |
           ansible-playbook playbooks/install.yml \
             -i "${{ github.event.inputs.vm_ip }}," \
+            -u root \
             --extra-vars "target_ip=${{ github.event.inputs.vm_ip }}"
+
