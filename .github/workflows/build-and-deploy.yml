@@ -63,10 +63,10 @@ jobs:
           tags: "${{ secrets.DOCKER_USERNAME }}/devops-exam:1.0.0"
 
   # ============================================================
-  # JOB 2: Розгортання
+  # JOB 2: Розгортання через SSH (Remote Execution)
   # ============================================================
   deploy:
-    name: Deploy to Kubernetes
+    name: Deploy to Kubernetes via SSH
     needs: build
     runs-on: ubuntu-latest
     steps:
@@ -80,59 +80,50 @@ jobs:
           chmod 600 ~/.ssh/id_rsa
           ssh-keyscan -H ${{ github.event.inputs.vm_ip }} >> ~/.ssh/known_hosts
 
-      - name: Install kubectl
-        uses: azure/setup-kubectl@v3
-
-      - name: Get kubeconfig from VM
-        run: |
-          # Використовуємо -i ~/.ssh/id_rsa для надійності
-          ssh -o StrictHostKeyChecking=no root@${{ github.event.inputs.vm_ip }} \
-          "kubectl config view --raw --flatten" > /tmp/kubeconfig
-          
-          # Замінюємо адресу API сервера. Якщо Minikube використовує порт 8443, переконайтеся, що він доступний зовні.
-          # Ми замінюємо 127.0.0.1 або внутрішню IP minikube на зовнішню IP віртуальної машини.
-          sed -i "s|server: https://.*:8443|server: https://${{ github.event.inputs.vm_ip }}:8443|g" /tmp/kubeconfig
-          # Також про всяк випадок загальна заміна 127.0.0.1
-          sed -i "s/127.0.0.1/${{ github.event.inputs.vm_ip }}/g" /tmp/kubeconfig
-
-      - name: Validate and Deploy DEV
+      - name: Deploy DEV environment
         if: github.event.inputs.environment == 'dev' || github.event.inputs.environment == 'both'
-        env:
-          KUBECONFIG: /tmp/kubeconfig
         run: |
-          kubectl apply -f task3/k8s/dev/namespace.yml
-          sed "s|YOUR_DOCKER_USERNAME|${{ secrets.DOCKER_USERNAME }}|g" task3/k8s/dev/deployment.yml | kubectl apply -f -
-          kubectl rollout status deployment/devops-app-dev -n dev --timeout=120s
-
-      - name: Validate and Deploy RELEASE
-        if: github.event.inputs.environment == 'release' || github.event.inputs.environment == 'both'
-        env:
-          KUBECONFIG: /tmp/kubeconfig
-        run: |
-          kubectl apply -f task3/k8s/release/namespace.yml
-          sed "s|YOUR_DOCKER_USERNAME|${{ secrets.DOCKER_USERNAME }}|g" task3/k8s/release/deployment.yml | kubectl apply -f -
-          kubectl rollout status deployment/devops-app-release -n release --timeout=120s
-
-      - name: Setup port-forwarding on VM
-        run: |
-          ssh -o StrictHostKeyChecking=no root@${{ github.event.inputs.vm_ip }} << 'EOF'
-            # Вбиваємо старі процеси, щоб звільнити порти
-            pkill -f "kubectl port-forward" || true
-            sleep 2
-            # Запуск у фоні. Важливо: --address='0.0.0.0' дозволяє доступ ззовні
+          # Копіюємо маніфести на VM
+          ssh root@${{ github.event.inputs.vm_ip }} "mkdir -p /tmp/k8s-dev"
+          scp task3/k8s/dev/*.yml root@${{ github.event.inputs.vm_ip }}:/tmp/k8s-dev/
+          
+          # Виконуємо команди локально на VM
+          ssh root@${{ github.event.inputs.vm_ip }} << EOF
+            kubectl apply -f /tmp/k8s-dev/namespace.yml
+            sed "s|YOUR_DOCKER_USERNAME|${{ secrets.DOCKER_USERNAME }}|g" /tmp/k8s-dev/deployment.yml | kubectl apply -f -
+            kubectl rollout status deployment/devops-app-dev -n dev --timeout=120s
+            
+            # Налаштування Port-forwarding
+            pkill -f "port-forward.*8002" || true
             nohup kubectl port-forward svc/devops-app-dev 8002:8002 -n dev --address='0.0.0.0' > /dev/null 2>&1 &
+          EOF
+
+      - name: Deploy RELEASE environment
+        if: github.event.inputs.environment == 'release' || github.event.inputs.environment == 'both'
+        run: |
+          # Копіюємо маніфести на VM
+          ssh root@${{ github.event.inputs.vm_ip }} "mkdir -p /tmp/k8s-release"
+          scp task3/k8s/release/*.yml root@${{ github.event.inputs.vm_ip }}:/tmp/k8s-release/
+          
+          # Виконуємо команди локально на VM
+          ssh root@${{ github.event.inputs.vm_ip }} << EOF
+            kubectl apply -f /tmp/k8s-release/namespace.yml
+            sed "s|YOUR_DOCKER_USERNAME|${{ secrets.DOCKER_USERNAME }}|g" /tmp/k8s-release/deployment.yml | kubectl apply -f -
+            kubectl rollout status deployment/devops-app-release -n release --timeout=120s
+            
+            # Налаштування Port-forwarding
+            pkill -f "port-forward.*8003" || true
             nohup kubectl port-forward svc/devops-app-release 8003:8003 -n release --address='0.0.0.0' > /dev/null 2>&1 &
           EOF
 
-      - name: Show deployment info
+      - name: Show summary info
         run: |
           echo "### Deployment Successful! :rocket:" >> $GITHUB_STEP_SUMMARY
           echo "| Environment | URL |" >> $GITHUB_STEP_SUMMARY
           echo "|-------------|-----|" >> $GITHUB_STEP_SUMMARY
-          echo "| DEV | http://${{ github.event.inputs.vm_ip }}:8002 |" >> $GITHUB_STEP_SUMMARY
-          echo "| RELEASE | http://${{ github.event.inputs.vm_ip }}:8003 |" >> $GITHUB_STEP_SUMMARY
+          [ "${{ github.event.inputs.environment }}" != "release" ] && echo "| DEV | http://${{ github.event.inputs.vm_ip }}:8002 |" >> $GITHUB_STEP_SUMMARY
+          [ "${{ github.event.inputs.environment }}" != "dev" ] && echo "| RELEASE | http://${{ github.event.inputs.vm_ip }}:8003 |" >> $GITHUB_STEP_SUMMARY
 
       - name: Cleanup
         if: always()
-        run: rm -rf ~/.ssh/id_rsa /tmp/kubeconfig
-
+        run: rm -rf ~/.ssh/id_rsa
